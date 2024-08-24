@@ -1,7 +1,7 @@
-model_path: "./models/llama/"
-data_path: "./data/PUD/"
-vacancies_path: "./data/Вакансии_обработанные_фильтр_5000/"
-output_folder: "./results/"
+model_path: "./models/llama/" # Путь к модели LLM
+data_path: "./data/PUD/" # Пусть к папке с ПУДами
+vacancies_path: "./data/Вакансии_обработанные_фильтр_5000/" # Путь к вакансиям
+output_folder: "./results/" # Путь, где сохраняется результат обработки
 sbert_model: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 # SBERT заточенный под русский язык: "ai-forever/ru-en-RoSBERTa"
 # Популярная модель SBERT "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
