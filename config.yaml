@@ -19,7 +19,7 @@ processing:
   solo_index: 0   # Используется, если mode = 'solo'
   random_count: 2   # Используется, если mode = 'random'
 
-# Параметры генерации ключевых слов
+# Параметры генерации с помощью LLM
 generation_params:
   max_new_tokens: 200
   num_return_sequences: 1
