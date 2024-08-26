@@ -1,6 +1,6 @@
 model_path: "./models/llama/" # Путь к модели LLM
 data_path: "./data/PUD/" # Пусть к папке с ПУДами
-vacancies_path: "./data/Вакансии_обработанные_фильтр_5000/" # Путь к вакансиям
+vacancies_path: "./data/Вакансии/" # Путь к вакансиям
 output_folder: "./results/" # Путь, где сохраняется результат обработки
 
 sbert_model: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
@@ -8,7 +8,7 @@ sbert_model: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 # Популярная модель SBERT "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 method: "tfidf"  # Метод обработки вакансий, возможные значения: "sbert", "tfidf"
-use_llm: True # Использование LLM модели для генерации рекомендаций
+use_llm: False # Использование LLM модели для генерации рекомендаций
 
 top_faculties: 3  # Количество топовых факультетов
 top_disciplines_per_faculty: 5  # Количество топовых дисциплин для каждого факультета
@@ -16,11 +16,10 @@ top_disciplines: 25  # Количество топовых дисциплин в
 analysis_mode: "discipline_only"  # Можно установить "faculty_based" или "discipline_only"
 
 # Параметры обработки строк
-max_rows_per_file: 10  # количество строк для обработки из каждого файла
+max_rows_per_file: 1  # количество строк для обработки из каждого файла
 processing:
   mode: 'all'  # Опции: 'all', 'solo', 'random'
   solo_index: 0   # Используется, если mode = 'solo'
-  random_count: 2   # Используется, если mode = 'random'
 
 # Параметры генерации с помощью LLM
 generation_params:

@@ -47,16 +47,17 @@ def load_csv_files(config):
 def filter_rows_by_mode(df, config):
     """
     Фильтрует строки DataFrame в зависимости от режима обработки, заданного в конфигурации.
+
     :param df: DataFrame с данными.
     :param config: Конфигурационный словарь с параметрами обработки.
     :return: DataFrame с отфильтрованными строками.
     """
     mode = config['processing']['mode']
+    max_rows_per_file = config.get('max_rows_per_file', 10)
 
     if mode == 'all':
-        max_rows = min(config.get('max_rows_per_file', len(df)), len(df))
         info("Обработка всех строк.")
-        return df.head(max_rows)  # Ограничиваем количество строк
+        return df if max_rows_per_file is None else df.head(max_rows_per_file)
 
     elif mode == 'solo':
         solo_index = config['processing']['solo_index']
@@ -64,10 +65,12 @@ def filter_rows_by_mode(df, config):
         return df.iloc[[solo_index]]
 
     elif mode == 'random':
-        random_count = config['processing']['random_count']
-        max_rows = min(random_count, config.get('max_rows_per_file', len(df)), len(df))
-        info(f"Обработка {random_count} случайных строк.")
-        return df.sample(n=max_rows)
+        if max_rows_per_file:
+            info(f"Обработка {max_rows_per_file} случайных строк.")
+            return df.sample(n=min(max_rows_per_file, len(df)))
+        else:
+            info("Обработка всех строк случайным образом.")
+            return df.sample(frac=1)
 
     else:
         warning(f"Неизвестный режим обработки: {mode}. Будет обработан весь DataFrame.")
