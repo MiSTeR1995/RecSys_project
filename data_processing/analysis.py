@@ -1,11 +1,13 @@
-from utils.logger import info, success, warning, error, highlight, bright
+import os
 from sentence_transformers import util
-from .embedding_utils import load_sbert_model, embed_text
 from tqdm import tqdm
 import pandas as pd
 from data_processing.vacancy_loader import filter_rows_by_mode
 from data_processing.rec_generation import generate_recommendations
-import os
+from utils.logger import info, success, warning, error, highlight, bright
+from data_processing.embedding_utils import load_sbert_model, embed_text
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 def filter_unique_items_with_minimum(sorted_items, top_n):
     """
@@ -32,95 +34,117 @@ def filter_unique_items_with_minimum(sorted_items, top_n):
 
     return unique_items
 
-def find_top(vacancy_description, data, top_n, sbert_model, mode="discipline_only", top_disciplines_per_faculty=None):
+
+
+def find_top(vacancy_description, data, top_n, sbert_model=None, mode="discipline_only", top_disciplines_per_faculty=None, method="sbert"):
     """
     Универсальная функция для поиска топ-N элементов.
     :param vacancy_description: Описание вакансии.
     :param data: Либо список всех дисциплин, либо список факультетов с дисциплинами.
     :param top_n: Количество топовых элементов, которые нужно вернуть.
-    :param sbert_model: Модель Sentence-BERT для получения эмбеддингов.
+    :param sbert_model: Модель Sentence-BERT для получения эмбеддингов (необязательно для TF-IDF).
     :param mode: Режим работы ("discipline_only", "faculty_with_disciplines").
     :param top_disciplines_per_faculty: Количество топовых дисциплин для каждого факультета (необязательно).
+    :param method: Метод для получения эмбеддингов (sbert или tfidf).
     """
     try:
-        vacancy_embedding = embed_text(vacancy_description, sbert_model)
         all_top_items = []
 
-        if mode == "discipline_only":
-            discipline_similarities = []
+        if method == "sbert":
+            # Используем Sentence-BERT для получения эмбеддингов
+            vacancy_embedding = embed_text(vacancy_description, sbert_model)
 
-            for item in data:
+        elif method == "tfidf":
+            # Используем TF-IDF для получения эмбеддингов
+            vectorizer = TfidfVectorizer()
+            corpus = [vacancy_description] + [item.get('Full_Info', '') for item in data]
+            tfidf_matrix = vectorizer.fit_transform(corpus)
+            vacancy_embedding = tfidf_matrix[0:1]
+
+        if mode == "discipline_only":
+            similarities = []
+
+            for idx, item in enumerate(data):
                 discipline_name = item.get('Русскоязычное название дисциплины')
                 full_info = item.get('Full_Info')
 
-                if discipline_name and full_info:
-                    discipline_embedding = embed_text(full_info, sbert_model)
-                    similarity = util.pytorch_cos_sim(vacancy_embedding, discipline_embedding).item()
-                    discipline_similarities.append((discipline_name, similarity))
+                if full_info:
+                    if method == "sbert":
+                        discipline_embedding = embed_text(full_info, sbert_model)
+                        similarity = util.pytorch_cos_sim(vacancy_embedding, discipline_embedding).item()
+                    elif method == "tfidf":
+                        discipline_embedding = tfidf_matrix[idx + 1:idx + 2]
+                        similarity = cosine_similarity(vacancy_embedding, discipline_embedding)[0][0]
 
-            sorted_disciplines = sorted(discipline_similarities, key=lambda x: x[1], reverse=True)
+                    similarities.append((discipline_name, similarity))
+
+            sorted_disciplines = sorted(similarities, key=lambda x: x[1], reverse=True)
             unique_disciplines = filter_unique_items_with_minimum(sorted_disciplines, top_n)
 
-            highlight(f"Отсортированные топовые дисциплины по косинусному сходству:")
+            highlight(f"Отсортированные топовые дисциплины по косинусному сходству ({method}):")
             for rank, (discipline, similarity) in enumerate(unique_disciplines, 1):
                 success(f"{rank}. {discipline} с косинусным сходством: {similarity:.4f}")
 
-            # Добавляем топовые дисциплины в список для возврата
             all_top_items.extend([disc[0] for disc in unique_disciplines])
 
         elif mode == "faculty_with_disciplines":
             faculty_similarities = []
 
-            # Сначала находим топовые факультеты
-            for faculty_data in data:
+            for idx, faculty_data in enumerate(data):
                 faculty_name = faculty_data.get('Факультет кафедры, предлагающей дисциплину')
                 subjects_descriptions = faculty_data.get('Full_Info')
 
-                if faculty_name and subjects_descriptions:
-                    faculty_embedding = embed_text(" ".join(subjects_descriptions), sbert_model)
-                    faculty_similarity = util.pytorch_cos_sim(vacancy_embedding, faculty_embedding).item()
+                if subjects_descriptions:
+                    if method == "sbert":
+                        faculty_embedding = embed_text(" ".join(subjects_descriptions), sbert_model)
+                        faculty_similarity = util.pytorch_cos_sim(vacancy_embedding, faculty_embedding).item()
+                    elif method == "tfidf":
+                        faculty_embedding = tfidf_matrix[idx + 1:idx + 2]
+                        faculty_similarity = cosine_similarity(vacancy_embedding, faculty_embedding)[0][0]
+
                     faculty_similarities.append((faculty_name, faculty_similarity, subjects_descriptions))
 
-            # Сортируем факультеты и выбираем топ-N
             sorted_faculties = sorted(faculty_similarities, key=lambda x: x[1], reverse=True)[:top_n]
 
-            # Проходим по каждому факультету и находим топовые дисциплины
             for faculty_name, faculty_similarity, subjects_descriptions in sorted_faculties:
-                highlight(f"Факультет '{faculty_name}' с косинусным сходством: {faculty_similarity:.4f}")
+                highlight(f"Факультет '{faculty_name}' с косинусным сходством ({method}): {faculty_similarity:.4f}")
 
                 discipline_similarities = []
 
-                # Для каждого факультета находим топовые дисциплины
                 for description in subjects_descriptions:
-                    discipline_embedding = embed_text(description, sbert_model)
-                    discipline_similarity = util.pytorch_cos_sim(vacancy_embedding, discipline_embedding).item()
+                    if method == "sbert":
+                        discipline_embedding = embed_text(description, sbert_model)
+                        discipline_similarity = util.pytorch_cos_sim(vacancy_embedding, discipline_embedding).item()
+                    elif method == "tfidf":
+                        discipline_embedding = vectorizer.transform([description])
+                        discipline_similarity = cosine_similarity(vacancy_embedding, discipline_embedding)[0][0]
+
                     discipline_similarities.append((description.split('\n')[0], discipline_similarity))
 
                 sorted_disciplines = sorted(discipline_similarities, key=lambda x: x[1], reverse=True)
 
-                # Если указано количество дисциплин на факультет, выбираем только top_disciplines_per_faculty
                 if top_disciplines_per_faculty:
                     unique_disciplines = filter_unique_items_with_minimum(sorted_disciplines, top_disciplines_per_faculty)
                 else:
                     unique_disciplines = filter_unique_items_with_minimum(sorted_disciplines, top_n)
 
-                bright(f"Отсортированные топовые дисциплины для факультета '{faculty_name}' по косинусному сходству:")
+                bright(f"Отсортированные топовые дисциплины для факультета '{faculty_name}' по косинусному сходству ({method}):")
                 for rank, (discipline, similarity) in enumerate(unique_disciplines, 1):
                     success(f"{rank}. {discipline} с косинусным сходством: {similarity:.4f}")
 
-                # Добавляем топовые дисциплины факультета в список для возврата
                 all_top_items.extend([disc[0] for disc in unique_disciplines])
 
         return all_top_items
 
     except Exception as e:
-        error(f"Произошла ошибка при выполнении поиска топ-{top_n}: {e}")
+        error(f"Произошла ошибка при выполнении поиска топ-{top_n} ({method}): {e}")
         return []
+
 
 
 def process_vacancies(config, csv_files, grouped_df, df_cleaned, model, tokenizer):
     # Загружаем модель Sentence-BERT на основе конфигурации
-    sbert_model = load_sbert_model(config)
+    sbert_model = load_sbert_model(config) if config.get("method", "sbert") == "sbert" else None
 
     # Указываем папку для сохранения результатов
     output_folder = config.get("output_folder", "results")
@@ -151,40 +175,46 @@ def process_vacancies(config, csv_files, grouped_df, df_cleaned, model, tokenize
                     vacancy_description = ". ".join(parts)
                     info(f"Описание вакансии для строки {index}: {vacancy_description}")
 
-                    if config['analysis_mode'] == 'faculty_based':
+                    method = config.get('method', 'sbert')
 
+                    if config['analysis_mode'] == 'faculty_based':
                         top_disciplines = find_top(
                             vacancy_description,
                             grouped_df.to_dict('records'),
                             top_n=config['top_faculties'],
                             sbert_model=sbert_model,
                             mode="faculty_with_disciplines",
-                            top_disciplines_per_faculty=config['top_disciplines_per_faculty']
+                            top_disciplines_per_faculty=config['top_disciplines_per_faculty'],
+                            method=method
                         )
-
                     else:
-
                         disciplines_data = df_cleaned.to_dict('records')
                         top_disciplines = find_top(
                             vacancy_description,
                             disciplines_data,
                             top_n=config['top_disciplines'],
                             sbert_model=sbert_model,
-                            mode="discipline_only"
+                            mode="discipline_only",
+                            method=method
                         )
 
                     if top_disciplines:
                         disciplines_after_sbert = "; ".join(top_disciplines)
-                        recommendations = generate_recommendations(vacancy_description, top_disciplines, model, tokenizer, config)
+
+                        # Проверяем, нужно ли использовать LLaMA для генерации рекомендаций
+                        if config.get('use_llm', False):
+                            recommendations = generate_recommendations(vacancy_description, top_disciplines, model, tokenizer, config)
+                            df_e.at[index, "SBERT_plus_LLM_Recommendations"] = recommendations
+                            highlight(f"Сгенерированные рекомендации для строки {index}: {recommendations}")
+                        else:
+                            df_e.at[index, "SBERT_plus_LLM_Recommendations"] = "LLM не используется"
 
                         df_e.at[index, "SBERT_Disciplines"] = disciplines_after_sbert
-                        df_e.at[index, "SBERT_plus_LLaMA_Recommendations"] = recommendations
 
-                        highlight(f"Сгенерированные рекомендации для строки {index}: {recommendations}")
                     else:
                         warning(f"Нет подходящих дисциплин для строки {index}.")
                         df_e.at[index, "SBERT_Disciplines"] = "Нет дисциплин"
-                        df_e.at[index, "SBERT_plus_LLaMA_Recommendations"] = "Нет рекомендаций"
+                        df_e.at[index, "SBERT_plus_LLM_Recommendations"] = "Нет рекомендаций"
 
                     # Сохраняем строку в файл: если файл уже существует, добавляем строку без заголовка
                     df_e.loc[[index]].to_csv(
