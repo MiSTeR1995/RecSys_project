@@ -141,7 +141,6 @@ def find_top(vacancy_description, data, top_n, sbert_model=None, mode="disciplin
         return []
 
 
-
 def process_vacancies(config, csv_files, grouped_df, df_cleaned, model, tokenizer):
     # Загружаем модель Sentence-BERT на основе конфигурации
     sbert_model = load_sbert_model(config) if config.get("method", "sbert") == "sbert" else None

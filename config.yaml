@@ -18,9 +18,7 @@ analysis_mode: "discipline_only"  # Можно установить "faculty_bas
 # Параметры обработки строк
 max_rows_per_file: 10  # количество строк для обработки из каждого файла
 processing:
-  mode: 'random'  # Опции: 'all', 'range', 'solo', 'random'
-  start_index: 0  # Используется, если mode = 'range'
-  end_index: 2    # Используется, если mode = 'range'
+  mode: 'all'  # Опции: 'all', 'solo', 'random'
   solo_index: 0   # Используется, если mode = 'solo'
   random_count: 2   # Используется, если mode = 'random'
 
