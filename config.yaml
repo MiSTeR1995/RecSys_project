@@ -7,8 +7,8 @@ sbert_model: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 # SBERT заточенный под русский язык: "ai-forever/ru-en-RoSBERTa"
 # Популярная модель SBERT "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
-method: "tfidf"  # Метод обработки вакансий, возможные значения: "sbert", "tfidf"
-use_llm: False # Использование LLM модели для генерации рекомендаций
+method: "sbert"  # Метод обработки вакансий, возможные значения: "sbert", "tfidf"
+use_llm: True # Использование LLM модели для генерации рекомендаций
 
 top_faculties: 3  # Количество топовых факультетов
 top_disciplines_per_faculty: 5  # Количество топовых дисциплин для каждого факультета
@@ -18,7 +18,7 @@ analysis_mode: "discipline_only"  # Можно установить "faculty_bas
 # Параметры обработки строк
 max_rows_per_file: 1  # количество строк для обработки из каждого файла
 processing:
-  mode: 'all'  # Опции: 'all', 'solo', 'random'
+  mode: 'random'  # Опции: 'all', 'solo', 'random'
   solo_index: 0   # Используется, если mode = 'solo'
 
 # Параметры генерации с помощью LLM
