@@ -56,7 +56,7 @@ def filter_rows_by_mode(df, config):
     max_rows_per_file = config.get('max_rows_per_file', 10)
 
     if mode == 'all':
-        info("Обработка всех строк.")
+        # info("Обработка строк в режиме ALL")
         return df if max_rows_per_file is None else df.head(max_rows_per_file)
 
     elif mode == 'solo':

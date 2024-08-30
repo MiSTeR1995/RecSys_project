@@ -4,10 +4,44 @@ from tqdm import tqdm
 import pandas as pd
 from data_processing.vacancy_loader import filter_rows_by_mode
 from data_processing.rec_generation import generate_recommendations
-from utils.logger import info, success, warning, error, highlight, bright
+from utils.logger import info, success, warning, error, highlight, bright, get_plural_form
 from data_processing.embedding_utils import load_sbert_model, embed_text
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+
+def get_processed_ids(csv_files, output_folder, enable_id_check=True):
+    """
+    Получает уже обработанные ID из выходных файлов.
+
+    :param csv_files: Список входных файлов (CSV).
+    :param output_folder: Папка для сохранения результатов.
+    :param enable_id_check: Если True, выполняется проверка уже обработанных ID.
+    :return: Словарь, где ключи — имена файлов, а значения — множества с обработанными ID.
+    """
+    processed_ids_dict = {}
+
+    if not enable_id_check:
+        info("Проверка ID отключена. Все строки будут обработаны.")
+        return processed_ids_dict  # Возвращаем пустой словарь, если проверка отключена
+
+    for file_path in csv_files:
+        base_name = os.path.basename(file_path)
+        output_file = os.path.join(output_folder, base_name)
+        if os.path.isfile(output_file):
+            try:
+                df_output = pd.read_csv(output_file, sep=";", usecols=[0])  # Предполагается, что ID — первый столбец
+                processed_ids = set(df_output.iloc[:, 0].astype(str).tolist())
+                count = len(processed_ids)
+                info(f"Найдено совпадение по ID {count} ранее {get_plural_form(count, 'обработанной строки', 'обработанных строк', 'обработанных строк')} в файле {output_file}.")
+                processed_ids_dict[base_name] = processed_ids
+            except Exception as e:
+                warning(f"Не удалось прочитать файл {output_file} для загрузки обработанных ID: {e}")
+                processed_ids_dict[base_name] = set()
+        else:
+            processed_ids_dict[base_name] = set()
+            info(f"Файл {output_file} не найден. Начнем обработку с нуля.")
+
+    return processed_ids_dict
 
 def filter_unique_items_with_minimum(sorted_items, top_n):
     """
@@ -33,8 +67,6 @@ def filter_unique_items_with_minimum(sorted_items, top_n):
                     break
 
     return unique_items
-
-
 
 def find_top(vacancy_description, data, top_n, sbert_model=None, mode="discipline_only", top_disciplines_per_faculty=None, method="sbert"):
     """
@@ -140,7 +172,6 @@ def find_top(vacancy_description, data, top_n, sbert_model=None, mode="disciplin
         error(f"Произошла ошибка при выполнении поиска топ-{top_n} ({method}): {e}")
         return []
 
-
 def process_vacancies(config, csv_files, grouped_df, df_cleaned, model, tokenizer):
     # Загружаем модель Sentence-BERT на основе конфигурации
     sbert_model = load_sbert_model(config) if config.get("method", "sbert") == "sbert" else None
@@ -149,10 +180,18 @@ def process_vacancies(config, csv_files, grouped_df, df_cleaned, model, tokenize
     output_folder = config.get("output_folder", "results")
     os.makedirs(output_folder, exist_ok=True)
 
+    # Получаем уже обработанные ID
+    enable_id_check = config.get('processing', {}).get('enable_id_check', False)
+    processed_ids_dict = get_processed_ids(csv_files, output_folder, enable_id_check)
+
     total_rows = sum([len(pd.read_csv(file_path, sep=";", on_bad_lines="skip")) for file_path in csv_files])
 
     with tqdm(total=total_rows, desc="Общий прогресс обработки", unit="строка") as pbar:
         for file_path in csv_files:
+            base_name = os.path.basename(file_path)
+            output_file = os.path.join(output_folder, base_name)
+            processed_ids = processed_ids_dict.get(base_name, set())
+
             info(f"Чтение файла: {file_path}")
             try:
                 df_e = pd.read_csv(file_path, sep=";")
@@ -161,18 +200,25 @@ def process_vacancies(config, csv_files, grouped_df, df_cleaned, model, tokenize
                     continue
 
                 df_filtered = filter_rows_by_mode(df_e, config)
-                base_name = os.path.basename(file_path)
-                output_file = os.path.join(output_folder, base_name)
+                # Обновляем df_filtered, исключая уже обработанные ID
+                if enable_id_check:
+                    initial_count = len(df_filtered)
+                    df_filtered = df_filtered[~df_filtered.iloc[:, 0].astype(str).isin(processed_ids)]
+                    skipped_count = initial_count - len(df_filtered)
+                    if skipped_count > 0:
+                        success(f"{get_plural_form(skipped_count, "Пропущена", "Пропущено", "Пропущено")} {skipped_count} раннее {get_plural_form(skipped_count, "обработанная строка", "обработанные строки", "обработанных строк")} в файле {file_path}.")
 
                 # Проверяем, существует ли уже файл с результатами
                 file_exists = os.path.isfile(output_file)
 
                 for index, row in df_filtered.iterrows():
                     columns_name = df_e.columns
-                    parts = [str(row[col]).strip() for col in columns_name[:4] if isinstance(row[col], str) and row[col].strip()]
+
+                    vacancy_id = str(row[columns_name[0]]).strip()
+                    parts = [str(row[col]).strip() for col in columns_name[1:5] if isinstance(row[col], str) and row[col].strip()]
 
                     vacancy_description = ". ".join(parts)
-                    info(f"Описание вакансии для строки {index}: {vacancy_description}")
+                    bright(f"Описание вакансии (ID: {vacancy_id}) для строки {index}: {vacancy_description}")
 
                     method = config.get('method', 'sbert')
 
@@ -204,14 +250,14 @@ def process_vacancies(config, csv_files, grouped_df, df_cleaned, model, tokenize
                         if config.get('use_llm', False):
                             recommendations = generate_recommendations(vacancy_description, top_disciplines, model, tokenizer, config)
                             df_e.at[index, "SBERT_plus_LLM_Recommendations"] = recommendations
-                            highlight(f"Сгенерированные рекомендации для строки {index}: {recommendations}")
+                            highlight(f"Сгенерированные рекомендации для строки {index} (ID: {vacancy_id}): {recommendations}")
                         else:
                             df_e.at[index, "SBERT_plus_LLM_Recommendations"] = "LLM не используется"
 
                         df_e.at[index, "SBERT_Disciplines"] = disciplines_after_sbert
 
                     else:
-                        warning(f"Нет подходящих дисциплин для строки {index}.")
+                        warning(f"Нет подходящих дисциплин для строки {index} (ID: {vacancy_id}).")
                         df_e.at[index, "SBERT_Disciplines"] = "Нет дисциплин"
                         df_e.at[index, "SBERT_plus_LLM_Recommendations"] = "Нет рекомендаций"
 
@@ -228,7 +274,11 @@ def process_vacancies(config, csv_files, grouped_df, df_cleaned, model, tokenize
                     # После первой итерации файла мы будем добавлять без заголовка
                     file_exists = True
 
-                    info(f"Строка {index} сохранена в файл {output_file}.")
+                    # Добавляем ID в processed_ids, если проверка включена
+                    if enable_id_check:
+                        processed_ids.add(vacancy_id)
+
+                    info(f"Строка {index} (ID: {vacancy_id}) сохранена в файл {output_file}.")
                     pbar.update(1)
 
             except Exception as e:

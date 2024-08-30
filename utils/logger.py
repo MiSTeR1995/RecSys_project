@@ -34,3 +34,12 @@ def get_progress_bar_width(percentage=0.7):
     """
     terminal_width, _ = shutil.get_terminal_size()
     return int(terminal_width * percentage)
+
+def get_plural_form(n, singular, few, many):
+    if 11 <= n % 100 <= 19:
+        return many
+    if n % 10 == 1:
+        return singular
+    if 2 <= n % 10 <= 4:
+        return few
+    return many
