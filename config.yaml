@@ -16,7 +16,7 @@ top_disciplines: 25  # Количество топовых дисциплин в
 analysis_mode: "discipline_only"  # Можно установить "faculty_based" или "discipline_only"
 
 # Параметры обработки строк
-max_rows_per_file: 2  # количество строк для обработки из каждого файла
+max_rows_per_file: 5  # количество строк для обработки из каждого файла
 processing:
   mode: 'all'  # Опции: 'all', 'solo', 'random'
   solo_index: 0   # Используется, если mode = 'solo'

@@ -173,113 +173,96 @@ def find_top(vacancy_description, data, top_n, sbert_model=None, mode="disciplin
         return []
 
 def process_vacancies(config, csv_files, grouped_df, df_cleaned, model, tokenizer):
-    # Загружаем модель Sentence-BERT на основе конфигурации
-    sbert_model = load_sbert_model(config) if config.get("method", "sbert") == "sbert" else None
+    try:
+        # Загружаем модель Sentence-BERT на основе конфигурации
+        sbert_model = load_sbert_model(config) if config.get("method", "sbert") == "sbert" else None
 
-    # Указываем папку для сохранения результатов
-    output_folder = config.get("output_folder", "results")
-    os.makedirs(output_folder, exist_ok=True)
+        # Указываем папку для сохранения результатов
+        output_folder = config.get("output_folder", "results")
+        os.makedirs(output_folder, exist_ok=True)
 
-    # Получаем уже обработанные ID
-    enable_id_check = config.get('processing', {}).get('enable_id_check', False)
-    processed_ids_dict = get_processed_ids(csv_files, output_folder, enable_id_check)
+        # Получаем уже обработанные ID
+        enable_id_check = config.get('processing', {}).get('enable_id_check', False)
+        processed_ids_dict = get_processed_ids(csv_files, output_folder, enable_id_check)
 
-    total_rows = sum([len(pd.read_csv(file_path, sep=";", on_bad_lines="skip")) for file_path in csv_files])
-
-    with tqdm(total=total_rows, desc="Общий прогресс обработки", unit="строка") as pbar:
+        # Создаем итераторы для каждой строки в каждом файле
+        iterators = []
         for file_path in csv_files:
-            base_name = os.path.basename(file_path)
-            output_file = os.path.join(output_folder, base_name)
-            processed_ids = processed_ids_dict.get(base_name, set())
+            df = pd.read_csv(file_path, sep=";")
+            df_filtered = filter_rows_by_mode(df, config)
+            iterators.append((file_path, iter(df_filtered.iterrows())))
 
-            info(f"Чтение файла: {file_path}")
-            try:
-                df_e = pd.read_csv(file_path, sep=";")
-                if df_e.empty:
-                    info(f"Файл {file_path} пустой, пропускаем.")
-                    continue
+        total_rows = sum(len(pd.read_csv(file_path, sep=";")) for file_path in csv_files)
+        with tqdm(total=total_rows, desc="Общий прогресс обработки", unit="строка") as pbar:
+            while iterators:
+                for file_path, iterator in iterators[:]:  # копия списка, чтобы изменять его во время итерации
+                    try:
+                        index, row = next(iterator)
+                        # Обработка строки
+                        process_row(file_path, index, row, processed_ids_dict, sbert_model, grouped_df, df_cleaned, model, tokenizer, output_folder, config)
+                        pbar.update(1)
+                    except StopIteration:
+                        iterators.remove((file_path, iterator))  # Удаляем итератор, если файл завершен
+                    except Exception as e:
+                        error(f"Ошибка при обработке файла {file_path} на строке {index}: {e}")
 
-                df_filtered = filter_rows_by_mode(df_e, config)
-                # Обновляем df_filtered, исключая уже обработанные ID
-                if enable_id_check:
-                    initial_count = len(df_filtered)
-                    df_filtered = df_filtered[~df_filtered.iloc[:, 0].astype(str).isin(processed_ids)]
-                    skipped_count = initial_count - len(df_filtered)
-                    if skipped_count > 0:
-                        success(f"{get_plural_form(skipped_count, "Пропущена", "Пропущено", "Пропущено")} {skipped_count} раннее {get_plural_form(skipped_count, "обработанная строка", "обработанные строки", "обработанных строк")} в файле {file_path}.")
+    except Exception as e:
+        error(f"Ошибка при инициализации процесса обработки вакансий: {e}")
 
-                # Проверяем, существует ли уже файл с результатами
-                file_exists = os.path.isfile(output_file)
+def process_row(file_path, index, row, processed_ids_dict, sbert_model, grouped_df, df_cleaned, model, tokenizer, output_folder, config):
+    try:
+        base_name = os.path.basename(file_path)
+        processed_ids = processed_ids_dict.get(base_name, set())
 
-                for index, row in df_filtered.iterrows():
-                    columns_name = df_e.columns
+        # Предполагается, что первый столбец — ID
+        vacancy_id = str(row.iloc[0]).strip()
+        if config.get('processing', {}).get('enable_id_check', False) and vacancy_id in processed_ids:
+            return  # Пропускаем уже обработанные строки
 
-                    vacancy_id = str(row[columns_name[0]]).strip()
-                    parts = [str(row[col]).strip() for col in columns_name[1:5] if isinstance(row[col], str) and row[col].strip()]
+        parts = [str(row.iloc[col]).strip() for col in range(1, 5) if isinstance(row.iloc[col], str) and row.iloc[col].strip()]
+        vacancy_description = ". ".join(parts)
+        bright(f"Описание вакансии (ID: {vacancy_id}) для строки {index}: {vacancy_description}")
 
-                    vacancy_description = ". ".join(parts)
-                    bright(f"Описание вакансии (ID: {vacancy_id}) для строки {index}: {vacancy_description}")
+        method = config.get('method', 'sbert')
+        if config['analysis_mode'] == 'faculty_based':
+            top_disciplines = find_top(
+                vacancy_description,
+                grouped_df.to_dict('records'),
+                top_n=config['top_faculties'],
+                sbert_model=sbert_model,
+                mode="faculty_with_disciplines",
+                top_disciplines_per_faculty=config['top_disciplines_per_faculty'],
+                method=method
+            )
+        else:
+            disciplines_data = df_cleaned.to_dict('records')
+            top_disciplines = find_top(
+                vacancy_description,
+                disciplines_data,
+                top_n=config['top_disciplines'],
+                sbert_model=sbert_model,
+                mode="discipline_only",
+                method=method
+            )
 
-                    method = config.get('method', 'sbert')
+        if top_disciplines:
+            disciplines_after_sbert = "; ".join(top_disciplines)
+            if config.get('use_llm', False):
+                recommendations = generate_recommendations(vacancy_description, top_disciplines, model, tokenizer, config)
+                row["SBERT_plus_LLM_Recommendations"] = recommendations
+                highlight(f"Сгенерированные рекомендации для строки {index} (ID: {vacancy_id}): {recommendations}")
+            else:
+                row["SBERT_plus_LLM_Recommendations"] = "LLM не используется"
+            row["SBERT_Disciplines"] = disciplines_after_sbert
+        else:
+            warning(f"Нет подходящих дисциплин для строки {index} (ID: {vacancy_id}).")
+            row["SBERT_Disciplines"] = "Нет дисциплин"
+            row["SBERT_plus_LLM_Recommendations"] = "Нет рекомендаций"
 
-                    if config['analysis_mode'] == 'faculty_based':
-                        top_disciplines = find_top(
-                            vacancy_description,
-                            grouped_df.to_dict('records'),
-                            top_n=config['top_faculties'],
-                            sbert_model=sbert_model,
-                            mode="faculty_with_disciplines",
-                            top_disciplines_per_faculty=config['top_disciplines_per_faculty'],
-                            method=method
-                        )
-                    else:
-                        disciplines_data = df_cleaned.to_dict('records')
-                        top_disciplines = find_top(
-                            vacancy_description,
-                            disciplines_data,
-                            top_n=config['top_disciplines'],
-                            sbert_model=sbert_model,
-                            mode="discipline_only",
-                            method=method
-                        )
+        output_file = os.path.join(output_folder, base_name)
+        row.to_frame().T.to_csv(output_file, mode='a', header=not os.path.isfile(output_file), index=False, encoding="utf-8-sig", sep=";")
+        processed_ids.add(vacancy_id)
+        info(f"Строка {index} (ID: {vacancy_id}) сохранена в файл {output_file}.")
 
-                    if top_disciplines:
-                        disciplines_after_sbert = "; ".join(top_disciplines)
-
-                        # Проверяем, нужно ли использовать LLaMA для генерации рекомендаций
-                        if config.get('use_llm', False):
-                            recommendations = generate_recommendations(vacancy_description, top_disciplines, model, tokenizer, config)
-                            df_e.at[index, "SBERT_plus_LLM_Recommendations"] = recommendations
-                            highlight(f"Сгенерированные рекомендации для строки {index} (ID: {vacancy_id}): {recommendations}")
-                        else:
-                            df_e.at[index, "SBERT_plus_LLM_Recommendations"] = "LLM не используется"
-
-                        df_e.at[index, "SBERT_Disciplines"] = disciplines_after_sbert
-
-                    else:
-                        warning(f"Нет подходящих дисциплин для строки {index} (ID: {vacancy_id}).")
-                        df_e.at[index, "SBERT_Disciplines"] = "Нет дисциплин"
-                        df_e.at[index, "SBERT_plus_LLM_Recommendations"] = "Нет рекомендаций"
-
-                    # Сохраняем строку в файл: если файл уже существует, добавляем строку без заголовка
-                    df_e.loc[[index]].to_csv(
-                        output_file,
-                        mode='a' if file_exists else 'w',  # 'a' для дозаписи, 'w' для записи с заголовком
-                        header=not file_exists,  # Пишем заголовок только если файл не существует
-                        index=False,
-                        encoding="utf-8-sig",
-                        sep=";"
-                    )
-
-                    # После первой итерации файла мы будем добавлять без заголовка
-                    file_exists = True
-
-                    # Добавляем ID в processed_ids, если проверка включена
-                    if enable_id_check:
-                        processed_ids.add(vacancy_id)
-
-                    info(f"Строка {index} (ID: {vacancy_id}) сохранена в файл {output_file}.")
-                    pbar.update(1)
-
-            except Exception as e:
-                error(f"Ошибка при обработке файла {file_path}: {e}")
+    except Exception as e:
+        error(f"Ошибка при обработке строки {index} (ID: {vacancy_id}) в файле {file_path}: {e}")
