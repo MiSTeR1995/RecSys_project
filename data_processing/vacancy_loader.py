@@ -53,11 +53,14 @@ def filter_rows_by_mode(df, config):
     :return: DataFrame с отфильтрованными строками.
     """
     mode = config['processing']['mode']
-    max_rows_per_file = config.get('max_rows_per_file', 10)
+    max_rows_per_file = config.get('max_rows_per_file')
 
     if mode == 'all':
-        # info("Обработка строк в режиме ALL")
-        return df if max_rows_per_file is None else df.head(max_rows_per_file)
+        # Если max_rows_per_file установлено в 'ALL', возвращаем весь DataFrame
+        if max_rows_per_file == 'ALL':
+            return df
+        else:
+            return df.head(int(max_rows_per_file))
 
     elif mode == 'solo':
         solo_index = config['processing']['solo_index']
@@ -65,12 +68,12 @@ def filter_rows_by_mode(df, config):
         return df.iloc[[solo_index]]
 
     elif mode == 'random':
-        if max_rows_per_file:
-            info(f"Обработка {max_rows_per_file} случайных строк.")
-            return df.sample(n=min(max_rows_per_file, len(df)))
-        else:
+        if max_rows_per_file == 'ALL':
             info("Обработка всех строк случайным образом.")
             return df.sample(frac=1)
+        else:
+            info(f"Обработка {max_rows_per_file} случайных строк.")
+            return df.sample(n=min(int(max_rows_per_file), len(df)))
 
     else:
         warning(f"Неизвестный режим обработки: {mode}. Будет обработан весь DataFrame.")

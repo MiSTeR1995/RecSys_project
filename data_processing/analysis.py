@@ -1,4 +1,5 @@
 import os
+import torch
 from sentence_transformers import util
 from tqdm import tqdm
 import pandas as pd
@@ -68,7 +69,7 @@ def filter_unique_items_with_minimum(sorted_items, top_n):
 
     return unique_items
 
-def find_top(vacancy_description, data, top_n, sbert_model=None, mode="discipline_only", top_disciplines_per_faculty=None, method="sbert"):
+def find_top(vacancy_description, data, top_n, sbert_model=None, mode="discipline_only", top_disciplines_per_faculty=None, method="sbert", embeddings=None):
     """
     Универсальная функция для поиска топ-N элементов.
     :param vacancy_description: Описание вакансии.
@@ -78,12 +79,23 @@ def find_top(vacancy_description, data, top_n, sbert_model=None, mode="disciplin
     :param mode: Режим работы ("discipline_only", "faculty_with_disciplines").
     :param top_disciplines_per_faculty: Количество топовых дисциплин для каждого факультета (необязательно).
     :param method: Метод для получения эмбеддингов (sbert или tfidf).
+    :param embeddings: Повторно используемые эмбеддинги (если есть), чтобы избежать повторных вычислений.
+    :return: Список топовых элементов и эмбеддинги для повторного использования.
     """
     try:
+        # Используем CosineSimilarity от PyTorch для вычисления сходства
+        sim = torch.nn.CosineSimilarity()
+        create_new_embeddings = False
+
+        # Если эмбеддинги еще не были вычислены, инициализируем их
+        if embeddings is None:
+            embeddings = []
+            create_new_embeddings = True
+
         all_top_items = []
 
         if method == "sbert":
-            # Используем Sentence-BERT для получения эмбеддингов
+            # Используем Sentence-BERT для получения эмбеддингов вакансии
             vacancy_embedding = embed_text(vacancy_description, sbert_model)
 
         elif method == "tfidf":
@@ -94,22 +106,34 @@ def find_top(vacancy_description, data, top_n, sbert_model=None, mode="disciplin
             vacancy_embedding = tfidf_matrix[0:1]
 
         if mode == "discipline_only":
-            similarities = []
+            names = []
 
+            # Обрабатываем каждый элемент данных
             for idx, item in enumerate(data):
                 discipline_name = item.get('Русскоязычное название дисциплины')
                 full_info = item.get('Full_Info')
 
                 if full_info:
                     if method == "sbert":
-                        discipline_embedding = embed_text(full_info, sbert_model)
-                        similarity = util.pytorch_cos_sim(vacancy_embedding, discipline_embedding).item()
+                        if create_new_embeddings:  # Если эмбеддинги создаются впервые
+                            discipline_embedding = embed_text(full_info, sbert_model)
+                            embeddings.append(discipline_embedding)  # Добавляем эмбеддинг в список
                     elif method == "tfidf":
                         discipline_embedding = tfidf_matrix[idx + 1:idx + 2]
                         similarity = cosine_similarity(vacancy_embedding, discipline_embedding)[0][0]
 
-                    similarities.append((discipline_name, similarity))
+                    names.append(discipline_name)
 
+            # Если эмбеддинги были созданы впервые, преобразуем их в тензор
+            if create_new_embeddings:
+                embeddings = torch.stack(embeddings)
+
+            # Вычисляем косинусное сходство
+            with torch.no_grad():
+                similarities = sim(vacancy_embedding, embeddings).cpu().tolist()
+                similarities = [(i, j) for i, j in zip(names, similarities)]
+
+            # Сортируем по сходству
             sorted_disciplines = sorted(similarities, key=lambda x: x[1], reverse=True)
             unique_disciplines = filter_unique_items_with_minimum(sorted_disciplines, top_n)
 
@@ -120,29 +144,43 @@ def find_top(vacancy_description, data, top_n, sbert_model=None, mode="disciplin
             all_top_items.extend([disc[0] for disc in unique_disciplines])
 
         elif mode == "faculty_with_disciplines":
-            faculty_similarities = []
+            faculty_names = []
+            faculty_embeddings = [] if create_new_embeddings else embeddings  # Используем или создаём эмбеддинги факультетов
 
+            # Обрабатываем каждый факультет
             for idx, faculty_data in enumerate(data):
                 faculty_name = faculty_data.get('Факультет кафедры, предлагающей дисциплину')
                 subjects_descriptions = faculty_data.get('Full_Info')
 
                 if subjects_descriptions:
                     if method == "sbert":
-                        faculty_embedding = embed_text(" ".join(subjects_descriptions), sbert_model)
-                        faculty_similarity = util.pytorch_cos_sim(vacancy_embedding, faculty_embedding).item()
+                        if create_new_embeddings:  # Если эмбеддинги создаются впервые
+                            faculty_embedding = embed_text(" ".join(subjects_descriptions), sbert_model)
+                            faculty_embeddings.append(faculty_embedding)  # Добавляем эмбеддинг в список
                     elif method == "tfidf":
                         faculty_embedding = tfidf_matrix[idx + 1:idx + 2]
                         faculty_similarity = cosine_similarity(vacancy_embedding, faculty_embedding)[0][0]
 
-                    faculty_similarities.append((faculty_name, faculty_similarity, subjects_descriptions))
+                    faculty_names.append(faculty_name)
 
+            # Если эмбеддинги были созданы впервые, сохраняем их для факультетов
+            if create_new_embeddings:
+                embeddings = torch.stack(faculty_embeddings)
+
+            # Вычисляем косинусное сходство для факультетов
+            with torch.no_grad():
+                faculty_similarities = sim(vacancy_embedding, embeddings).cpu().tolist()
+                faculty_similarities = [(i, j) for i, j in zip(faculty_names, faculty_similarities)]
+
+            # Сортируем по сходству и выбираем топовые факультеты
             sorted_faculties = sorted(faculty_similarities, key=lambda x: x[1], reverse=True)[:top_n]
 
-            for faculty_name, faculty_similarity, subjects_descriptions in sorted_faculties:
+            for faculty_name, faculty_similarity in sorted_faculties:
                 highlight(f"Факультет '{faculty_name}' с косинусным сходством ({method}): {faculty_similarity:.4f}")
 
                 discipline_similarities = []
 
+                # Сравниваем дисциплины внутри факультета
                 for description in subjects_descriptions:
                     if method == "sbert":
                         discipline_embedding = embed_text(description, sbert_model)
@@ -166,11 +204,13 @@ def find_top(vacancy_description, data, top_n, sbert_model=None, mode="disciplin
 
                 all_top_items.extend([disc[0] for disc in unique_disciplines])
 
-        return all_top_items
+        # Возвращаем список топовых дисциплин и эмбеддинги для повторного использования
+        return all_top_items, embeddings
 
     except Exception as e:
+        # Обработка ошибок и исключений
         error(f"Произошла ошибка при выполнении поиска топ-{top_n} ({method}): {e}")
-        return []
+        return [], embeddings
 
 def process_vacancies(config, csv_files, grouped_df, df_cleaned, model, tokenizer):
     try:
@@ -184,6 +224,9 @@ def process_vacancies(config, csv_files, grouped_df, df_cleaned, model, tokenize
         # Получаем уже обработанные ID
         enable_id_check = config.get('processing', {}).get('enable_id_check', False)
         processed_ids_dict = get_processed_ids(csv_files, output_folder, enable_id_check)
+
+        # Инициализация переменной для эмбеддингов (используется для повторного использования)
+        embeddings = None
 
         # Создаем итераторы для каждой строки в каждом файле
         iterators = []
@@ -199,7 +242,7 @@ def process_vacancies(config, csv_files, grouped_df, df_cleaned, model, tokenize
                     try:
                         index, row = next(iterator)
                         # Обработка строки
-                        process_row(file_path, index, row, processed_ids_dict, sbert_model, grouped_df, df_cleaned, model, tokenizer, output_folder, config)
+                        embeddings = process_row(file_path, index, row, processed_ids_dict, sbert_model, grouped_df, df_cleaned, model, tokenizer, output_folder, config, embeddings)
                         pbar.update(1)
                     except StopIteration:
                         iterators.remove((file_path, iterator))  # Удаляем итератор, если файл завершен
@@ -209,7 +252,7 @@ def process_vacancies(config, csv_files, grouped_df, df_cleaned, model, tokenize
     except Exception as e:
         error(f"Ошибка при инициализации процесса обработки вакансий: {e}")
 
-def process_row(file_path, index, row, processed_ids_dict, sbert_model, grouped_df, df_cleaned, model, tokenizer, output_folder, config):
+def process_row(file_path, index, row, processed_ids_dict, sbert_model, grouped_df, df_cleaned, model, tokenizer, output_folder, config, embeddings):
     try:
         base_name = os.path.basename(file_path)
         processed_ids = processed_ids_dict.get(base_name, set())
@@ -217,32 +260,34 @@ def process_row(file_path, index, row, processed_ids_dict, sbert_model, grouped_
         # Предполагается, что первый столбец — ID
         vacancy_id = str(row.iloc[0]).strip()
         if config.get('processing', {}).get('enable_id_check', False) and vacancy_id in processed_ids:
-            return  # Пропускаем уже обработанные строки
+            return embeddings  # Пропускаем уже обработанные строки
 
         parts = [str(row.iloc[col]).strip() for col in range(1, 5) if isinstance(row.iloc[col], str) and row.iloc[col].strip()]
         vacancy_description = ". ".join(parts)
-        bright(f"Описание вакансии (ID: {vacancy_id}) для строки {index}: {vacancy_description}")
+        bright(f"Описание вакансии {base_name} (ID: {vacancy_id}) для строки {index}: {vacancy_description}")
 
         method = config.get('method', 'sbert')
         if config['analysis_mode'] == 'faculty_based':
-            top_disciplines = find_top(
+            top_disciplines, embeddings = find_top(
                 vacancy_description,
                 grouped_df.to_dict('records'),
                 top_n=config['top_faculties'],
                 sbert_model=sbert_model,
                 mode="faculty_with_disciplines",
                 top_disciplines_per_faculty=config['top_disciplines_per_faculty'],
-                method=method
+                method=method,
+                embeddings=embeddings  # Передаем и обновляем эмбеддинги
             )
         else:
             disciplines_data = df_cleaned.to_dict('records')
-            top_disciplines = find_top(
+            top_disciplines, embeddings = find_top(
                 vacancy_description,
                 disciplines_data,
                 top_n=config['top_disciplines'],
                 sbert_model=sbert_model,
                 mode="discipline_only",
-                method=method
+                method=method,
+                embeddings=embeddings  # Передаем и обновляем эмбеддинги
             )
 
         if top_disciplines:
@@ -264,5 +309,8 @@ def process_row(file_path, index, row, processed_ids_dict, sbert_model, grouped_
         processed_ids.add(vacancy_id)
         info(f"Строка {index} (ID: {vacancy_id}) сохранена в файл {output_file}.")
 
+        return embeddings  # Возвращаем обновленные эмбеддинги
+
     except Exception as e:
         error(f"Ошибка при обработке строки {index} (ID: {vacancy_id}) в файле {file_path}: {e}")
+        return embeddings

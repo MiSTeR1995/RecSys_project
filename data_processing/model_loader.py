@@ -26,8 +26,9 @@ def load_model(model_path, quantization=True):
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
             device_map="auto",
-            quantization_config=quantization_config,
-            torch_dtype=torch.float16  # Использование FP16 для ускорения на GPU
+            # quantization_config=quantization_config,
+            torch_dtype=torch.float16,  # Использование FP16 для ускорения на GPU
+            # attn_implementation="flash_attention_2"
         )
 
         model.eval()

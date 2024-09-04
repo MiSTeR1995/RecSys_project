@@ -22,5 +22,6 @@ def embed_text(text, sbert_model):
     :param sbert_model: Модель Sentence-BERT для получения эмбеддингов.
     :return: Эмбеддинг текста.
     """
-    embeddings = sbert_model.encode(text, convert_to_tensor=True, device=device)
+    with torch.no_grad():
+        embeddings = sbert_model.encode(text, convert_to_tensor=True, device=device)
     return embeddings
