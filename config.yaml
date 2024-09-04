@@ -10,10 +10,7 @@ sbert_model: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 method: "sbert"  # Метод обработки вакансий, возможные значения: "sbert", "tfidf"
 use_llm: true # Использование LLM модели для генерации рекомендаций
 
-top_faculties: 3  # Количество топовых факультетов
-top_disciplines_per_faculty: 5  # Количество топовых дисциплин для каждого факультета
-top_disciplines: 25  # Количество топовых дисциплин в режиме дисциплин
-analysis_mode: "discipline_only"  # Можно установить "faculty_based" или "discipline_only"
+top_disciplines: 25  # Количество поиска лучших дисциплин по косинусному сходству
 
 # Параметры обработки строк
 max_rows_per_file: 'ALL'  # количество строк для обработки из каждого файла. 'ALL' чтобы обработать все строки

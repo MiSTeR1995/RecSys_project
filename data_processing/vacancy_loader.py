@@ -16,8 +16,26 @@ def load_vacancy_data(config):
         df_temp = pd.read_excel(file)
         df = pd.concat([df, df_temp], ignore_index=True)
 
-    # Удаление дубликатов и объединение текстовых столбцов
-    df_cleaned = df.drop_duplicates(subset=['Русскоязычное название дисциплины', 'Факультет кафедры, предлагающей дисциплину']).copy()
+    # Извлечение года из периода изучения дисциплины и замена NaN на '0000/0000'
+    # df['year'] = df['Период изучения дисциплины'].str.extract(r'(\d{4}/\d{4})').fillna('0000/0000')
+
+    # Извлечение всех дат и выбор последней
+    # Преобразуем только строки, исключив NaN
+    df['year'] = df['Период изучения дисциплины'].fillna('').astype(str).str.findall(r'(\d{4}/\d{4})').apply(lambda x: x[-1] if x else '0000/0000')
+
+    # Проверка наличия строк без года изучения (значение '0000/0000')
+    missing_years = df[df['year'] == '0000/0000']
+    if not missing_years.empty:
+        warning(f"Обнаружены строки без информации о периоде изучения: {len(missing_years)} записей.")
+
+
+    # Сортировка по 'Русскоязычное название дисциплины' и 'year', чтобы оставить самые актуальные дисциплины
+    df_sorted = df.sort_values(by=['Русскоязычное название дисциплины', 'year'], ascending=[True, False])
+
+    # Удаление дубликатов, сохраняя только самые актуальные дисциплины (с последним периодом изучения)
+    df_cleaned = df_sorted.drop_duplicates(subset=['Русскоязычное название дисциплины', 'Факультет кафедры, предлагающей дисциплину'], keep='first')
+
+    # Формирование столбца Full_Info для объединения текстовых столбцов
     df_cleaned['Full_Info'] = (
         df_cleaned['Русскоязычное название дисциплины'] +
         '\nАннотация: ' + df_cleaned['Аннотация'].fillna('') +
@@ -29,6 +47,7 @@ def load_vacancy_data(config):
     grouped_df = df_cleaned.groupby('Факультет кафедры, предлагающей дисциплину')['Full_Info'].apply(list).reset_index()
 
     return df_cleaned, grouped_df
+
 
 def load_csv_files(config):
     vacancies_path = Path(config['vacancies_path'])
