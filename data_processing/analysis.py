@@ -150,9 +150,11 @@ def find_top(vacancy_description, data, top_n, sbert_model=None, method="sbert",
                 department = match.get('Кафедра, предлагающая дисциплину', '-')
                 level = match.get('Уровень обучения', '-')
                 period = match.get('Период изучения дисциплины', '-')
+                coverage= match.get('Охват аудитории', '-')
+                form = match.get('Формат изучения', '-')
 
                 # Форматируем строку с ID и косинусным сходством сразу после названия
-                formatted_discipline = f"{discipline_id} | {discipline} | CS={similarity:.4f} | {campus} | {faculty} | {department} | {level} | {period}"
+                formatted_discipline = f"{discipline_id} | {discipline} | CS={similarity:.4f} | {campus} | {faculty} | {department} | {level} | {period} | {coverage} | {form}"
                 all_top_items.append(formatted_discipline)
             else:
                 # Если match не найден, добавляем строку без ID
