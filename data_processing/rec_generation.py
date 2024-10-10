@@ -1,4 +1,4 @@
-from utils.logger import info, error, highlight
+from utils.logger import info, error, highlight, warning
 import torch
 
 def generate_recommendations(vacancy_description, disciplines_list, model, tokenizer, config):
@@ -72,6 +72,7 @@ def extract_generated_content(generated_text):
     Извлекает текст, заключенный между метками '### START' и '### END'.
     Если метка '### END' отсутствует, извлекает текст от '### START' до конца.
     Если метка '### START' отсутствует, возвращает весь текст.
+    Если текст между '### START' и '### END' пустой, ищет следующий блок.
     """
     if "### START" in generated_text:
         # Если есть метка START, начинаем извлечение после неё
@@ -80,6 +81,15 @@ def extract_generated_content(generated_text):
         # Если есть метка END, обрезаем текст до неё
         if "### END" in extracted_content:
             extracted_content = extracted_content.split("### END", 1)[0].strip()
+
+        # Проверяем, пусто ли между метками
+        if not extracted_content:
+            warning("Текст между метками '### START' и '### END' пустой. Ищем следующий блок текста.")
+
+            # Ищем следующий блок текста после первого '### END'
+            next_part = generated_text.split("### END", 1)[1].strip() if "### END" in generated_text else ''
+            if "### START" in next_part:
+                return extract_generated_content(next_part)  # Рекурсивно ищем следующий блок
 
         return extracted_content
 

@@ -7,6 +7,7 @@ from data_processing.vacancy_loader import filter_rows_by_mode
 from data_processing.rec_generation import generate_recommendations
 from utils.logger import info, success, warning, error, highlight, bright, get_plural_form
 from data_processing.embedding_utils import load_sbert_model, embed_text
+from data_processing.sorting_utils import sort_sbert_disciplines, sort_recommendations
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -219,6 +220,7 @@ def process_row(file_path, index, row, processed_ids_dict, sbert_model, grouped_
         if config.get('processing', {}).get('enable_id_check', False) and vacancy_id in processed_ids:
             return embeddings  # Пропускаем уже обработанные строки
 
+        # Преобразование описания вакансии
         parts = [str(row.iloc[col]).strip() for col in range(1, 5) if isinstance(row.iloc[col], str) and row.iloc[col].strip()]
         vacancy_description = ". ".join(parts)
         bright(f"Описание вакансии {base_name} (ID: {vacancy_id}) для строки {index}: {vacancy_description}")
@@ -236,26 +238,32 @@ def process_row(file_path, index, row, processed_ids_dict, sbert_model, grouped_
         )
 
         if full_top_discipline_info:
-            disciplines_after_sbert = "; ".join(full_top_discipline_info)
+            sorted_disciplines_str = sort_sbert_disciplines("; ".join(full_top_discipline_info))
+            row["SBERT_Disciplines"] = sorted_disciplines_str
+
             if config.get('use_llm', False):
-                # Передаем только названия дисциплин для LLM
+
                 recommendations = generate_recommendations(vacancy_description, top_discipline_names, model, tokenizer, config)
-                row["SBERT_plus_LLM_Recommendations"] = recommendations
-                highlight(f"Сгенерированные рекомендации для строки {index} (ID: {vacancy_id}): {recommendations}")
+
+                sorted_recommendations_str = sort_recommendations(recommendations, full_top_discipline_info)
+
+                row["SBERT_plus_LLM_Recommendations"] = sorted_recommendations_str
+                highlight(f"Сгенерированные и отсортированные рекомендации для строки {index} (ID: {vacancy_id}): {sorted_recommendations_str}")
+
             else:
                 row["SBERT_plus_LLM_Recommendations"] = "LLM не используется"
-            row["SBERT_Disciplines"] = disciplines_after_sbert
         else:
             warning(f"Нет подходящих дисциплин для строки {index} (ID: {vacancy_id}).")
             row["SBERT_Disciplines"] = "Нет дисциплин"
             row["SBERT_plus_LLM_Recommendations"] = "Нет рекомендаций"
 
+        # Запись в файл
         output_file = os.path.join(output_folder, base_name)
         row.to_frame().T.to_csv(output_file, mode='a', header=not os.path.isfile(output_file), index=False, encoding="utf-8-sig", sep=";")
         processed_ids.add(vacancy_id)
         info(f"Строка {index} (ID: {vacancy_id}) сохранена в файл {output_file}.")
 
-        return embeddings  # Возвращаем обновленные эмбеддинги
+        return embeddings
 
     except Exception as e:
         error(f"Ошибка при обработке строки {index} (ID: {vacancy_id}) в файле {file_path}: {e}")
