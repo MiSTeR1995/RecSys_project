@@ -6,7 +6,7 @@ import pandas as pd
 from data_processing.vacancy_loader import filter_rows_by_mode
 from data_processing.rec_generation import generate_recommendations
 from utils.logger import info, success, warning, error, highlight, bright, get_plural_form
-from data_processing.embedding_utils import load_sbert_model, embed_text
+from data_processing.embedding_utils import load_sbert_model, embed_text, prepare_embeddings
 from data_processing.sorting_utils import sort_sbert_disciplines, sort_recommendations
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -70,78 +70,55 @@ def filter_unique_items_with_minimum(sorted_items, top_n):
 
     return unique_items
 
-def find_top(vacancy_description, data, top_n, sbert_model=None, method="sbert", embeddings=None):
+def find_top(vacancy_description, data, top_n, sbert_model=None, method="sbert", embeddings=None, config=None):
     """
     Универсальная функция для поиска топ-N элементов.
+
     :param vacancy_description: Описание вакансии.
     :param data: Либо список всех дисциплин, либо список факультетов с дисциплинами.
     :param top_n: Количество топовых элементов, которые нужно вернуть.
     :param sbert_model: Модель Sentence-BERT для получения эмбеддингов (необязательно для TF-IDF).
-    :param mode: Режим работы ("discipline_only", "faculty_with_disciplines").
-    :param top_disciplines_per_faculty: Количество топовых дисциплин для каждого факультета (необязательно).
     :param method: Метод для получения эмбеддингов (sbert или tfidf).
     :param embeddings: Повторно используемые эмбеддинги (если есть), чтобы избежать повторных вычислений.
-    :return: Список топовых элементов и эмбеддинги для повторного использования.
-    """
-    try:
-        # Используем CosineSimilarity от PyTorch для вычисления сходства
-        sim = torch.nn.CosineSimilarity()
-        create_new_embeddings = False
+    :param config: Конфигурационный словарь, который может содержать дополнительные параметры.
 
-        # Если эмбеддинги еще не были вычислены, инициализируем их
-        if embeddings is None:
-            embeddings = []
-            create_new_embeddings = True
+    :return: Список топовых элементов, список имен топовых дисциплин и эмбеддинги для повторного использования.
+    """
+
+    try:
+        sim = torch.nn.CosineSimilarity()
 
         all_top_items = []
-        top_discipline_names = []  # Для передачи в LLM (только названия дисциплин)
+        top_discipline_names = []
 
+        # Вычисляем эмбеддинг для описания вакансии
         if method == "sbert":
-            # Используем Sentence-BERT для получения эмбеддингов вакансии
             vacancy_embedding = embed_text(vacancy_description, sbert_model)
-
         elif method == "tfidf":
-            # Используем TF-IDF для получения эмбеддингов
             vectorizer = TfidfVectorizer()
             corpus = [vacancy_description] + [item.get('Full_Info', '') for item in data]
             tfidf_matrix = vectorizer.fit_transform(corpus)
             vacancy_embedding = tfidf_matrix[0:1]
+        else:
+            error("Поддерживаемые методы: 'sbert' и 'tfidf'.")
+            return [], [], embeddings
 
-        names = []
-        # Обрабатываем каждый элемент данных
-        for idx, item in enumerate(data):
-            discipline_name = item.get('Русскоязычное название дисциплины')
-            full_info = item.get('Full_Info')
-
-            if full_info:
-                if method == "sbert":
-                    if create_new_embeddings:  # Если эмбеддинги создаются впервые
-                        discipline_embedding = embed_text(full_info, sbert_model)
-                        embeddings.append(discipline_embedding)  # Добавляем эмбеддинг в список
-                elif method == "tfidf":
-                    discipline_embedding = tfidf_matrix[idx + 1:idx + 2]
-                    similarity = cosine_similarity(vacancy_embedding, discipline_embedding)[0][0]
-
-                names.append(discipline_name)
-
-        # Если эмбеддинги были созданы впервые, преобразуем их в тензор
-        if create_new_embeddings:
-            embeddings = torch.stack(embeddings)
+        names = [item.get('Русскоязычное название дисциплины') for item in data]
 
         # Вычисляем косинусное сходство
-        with torch.no_grad():
-            similarities = sim(vacancy_embedding, embeddings).cpu().tolist()
-            similarities = [(i, j) for i, j in zip(names, similarities)]
+        if method == "sbert":
+            with torch.no_grad():
+                similarities = sim(vacancy_embedding, embeddings).cpu().tolist()
+                similarities = [(i, j) for i, j in zip(names, similarities)]
+        elif method == "tfidf":
+            similarities = [(names[idx], similarity) for idx, similarity in enumerate(cosine_similarity(vacancy_embedding, tfidf_matrix[1:])[0])]
 
-        # Сортируем по сходству
         sorted_disciplines = sorted(similarities, key=lambda x: x[1], reverse=True)
         unique_disciplines = filter_unique_items_with_minimum(sorted_disciplines, top_n)
 
         highlight(f"Отсортированные топовые дисциплины по косинусному сходству ({method}):")
         for rank, (discipline, similarity) in enumerate(unique_disciplines, 1):
             success(f"{rank}. {discipline} с косинусным сходством: {similarity:.4f}")
-
-            # Поиск полной информации о дисциплине в оригинальном data
             match = next((item for item in data if item.get('Русскоязычное название дисциплины') == discipline), None)
 
             if match:
@@ -151,14 +128,12 @@ def find_top(vacancy_description, data, top_n, sbert_model=None, method="sbert",
                 department = match.get('Кафедра, предлагающая дисциплину', '-')
                 level = match.get('Уровень обучения', '-')
                 period = match.get('Период изучения дисциплины', '-')
-                coverage= match.get('Охват аудитории', '-')
+                coverage = match.get('Охват аудитории', '-')
                 form = match.get('Формат изучения', '-')
 
-                # Форматируем строку с ID и косинусным сходством сразу после названия
                 formatted_discipline = f"{discipline_id} | {discipline} | CS={similarity:.4f} | {campus} | {faculty} | {department} | {level} | {period} | {coverage} | {form}"
                 all_top_items.append(formatted_discipline)
             else:
-                # Если match не найден, добавляем строку без ID
                 all_top_items.append(f"- | {discipline} | CS={similarity:.4f}")
 
         top_discipline_names.extend([disc[0] for disc in unique_disciplines])
@@ -166,7 +141,6 @@ def find_top(vacancy_description, data, top_n, sbert_model=None, method="sbert",
         return all_top_items, top_discipline_names, embeddings
 
     except Exception as e:
-        # Обработка ошибок и исключений
         error(f"Произошла ошибка при выполнении поиска топ-{top_n} ({method}): {e}")
         return [], [], embeddings
 
@@ -174,6 +148,15 @@ def process_vacancies(config, csv_files, grouped_df, df_cleaned, model, tokenize
     try:
         # Загружаем модель Sentence-BERT на основе конфигурации
         sbert_model = load_sbert_model(config) if config.get("method", "sbert") == "sbert" else None
+        embeddings_folder = config.get("embeddings_folder", None)
+        embeddings = None
+
+        if config.get("method") == "sbert" and embeddings_folder:
+            # Подготавливаем эмбеддинги (пересчет или загрузка в зависимости от флага)
+            force_load = config.get("force_load_embeddings", False)
+            embeddings = prepare_embeddings(df_cleaned.to_dict('records'), sbert_model, embeddings_folder, force_load=force_load)
+        else:
+            info("Метод не является 'sbert'. Эмбеддинги не будут пересчитаваться или загружаться из файла.")
 
         # Указываем папку для сохранения результатов
         output_folder = config.get("output_folder", "results")
@@ -182,9 +165,6 @@ def process_vacancies(config, csv_files, grouped_df, df_cleaned, model, tokenize
         # Получаем уже обработанные ID
         enable_id_check = config.get('processing', {}).get('enable_id_check', False)
         processed_ids_dict = get_processed_ids(csv_files, output_folder, enable_id_check)
-
-        # Инициализация переменной для эмбеддингов (используется для повторного использования)
-        embeddings = None
 
         # Создаем итераторы для каждой строки в каждом файле
         iterators = []
@@ -234,7 +214,8 @@ def process_row(file_path, index, row, processed_ids_dict, sbert_model, grouped_
             top_n=config['top_disciplines'],
             sbert_model=sbert_model,
             method=method,
-            embeddings=embeddings  # Передаем и обновляем эмбеддинги
+            embeddings=embeddings,
+            config=config
         )
 
         if full_top_discipline_info:

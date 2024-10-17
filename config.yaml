@@ -2,13 +2,17 @@ model_path: "./models/llama/" # Путь к модели LLM
 data_path: "./data/PUD/" # Пусть к папке с ПУДами
 vacancies_path: "./data/test/" # Путь к вакансиям
 output_folder: "./results/" # Путь, где сохраняется результат обработки
+skills_file: "./data/indexed_skills.csv"  # Путь к файлу с ID навыков
 
 sbert_model: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 # SBERT заточенный под русский язык: "ai-forever/ru-en-RoSBERTa"
 # Популярная модель SBERT "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 method: "sbert"  # Метод обработки вакансий, возможные значения: "sbert", "tfidf"
-use_llm: true # Использование LLM модели для генерации рекомендаций
+use_llm: false # Использование LLM модели для генерации рекомендаций
+
+embeddings_folder: "./embeddings/" # Путь для сохранения эмбеддингов
+force_load_embeddings: False # Принудительная загрузка эмбеддингов.
 
 top_disciplines: 25  # Количество поиска лучших дисциплин по косинусному сходству
 

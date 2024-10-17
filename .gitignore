@@ -172,5 +172,6 @@ dmypy.json
 models
 data
 results
+embeddings
 
 # Не игнорировать
