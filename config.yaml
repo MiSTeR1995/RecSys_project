@@ -3,25 +3,30 @@ data_path: "./data/PUD/" # Пусть к папке с ПУДами
 vacancies_path: "./data/test/" # Путь к вакансиям
 output_folder: "./results/" # Путь, где сохраняется результат обработки
 skills_file: "./data/indexed_skills.csv"  # Путь к файлу с ID навыков
+embeddings_folder: "./embeddings/" # Путь для сохранения эмбеддингов
+parquet_data_folder: "./data/parquets/"
 
 sbert_model: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 # SBERT заточенный под русский язык: "ai-forever/ru-en-RoSBERTa"
 # Популярная модель SBERT "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 method: "sbert"  # Метод обработки вакансий, возможные значения: "sbert", "tfidf"
-use_llm: false # Использование LLM модели для генерации рекомендаций
+use_llm: False # Использование LLM модели для генерации рекомендаций
+compute_vacancy_embeddings: True
 
-embeddings_folder: "./embeddings/" # Путь для сохранения эмбеддингов
+# Блок принудительной загрузки файлов
 force_load_embeddings: False # Принудительная загрузка эмбеддингов.
+force_load_vacancy_embeddings: False # Принудительная загрузка эмбеддингов вакансий.
+force_load_vacancy_parquet: False
 
-top_disciplines: 25  # Количество поиска лучших дисциплин по косинусному сходству
+top_disciplines: 5  # Количество поиска лучших дисциплин по косинусному сходству
 
 # Параметры обработки строк
 max_rows_per_file: 'ALL'  # количество строк для обработки из каждого файла. 'ALL' чтобы обработать все строки в файле
 processing:
   mode: 'solo'  # Опции: 'all', 'solo', 'random'
   solo_index: 0   # Используется, если mode = 'solo'
-  enable_id_check: false  # Проверка по ID
+  enable_id_check: True  # Проверка по ID
 
 # Параметры генерации с помощью LLM
 generation_params:

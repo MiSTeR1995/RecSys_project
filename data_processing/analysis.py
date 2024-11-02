@@ -84,6 +84,7 @@ def find_top(vacancy_description, data, top_n, sbert_model=None, method="sbert",
 
     :return: Список топовых элементов, список имен топовых дисциплин и эмбеддинги для повторного использования.
     """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     try:
         sim = torch.nn.CosineSimilarity()

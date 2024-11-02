@@ -2,10 +2,15 @@ from utils.config_loader import load_config
 from data_processing.vacancy_loader import load_vacancy_data, load_csv_files
 from data_processing.analysis import process_vacancies
 from data_processing.model_loader import load_model
+from data_processing.vacancy_embeddings import compute_and_save_vacancy_embeddings
 
 def main():
     # Загрузка конфигурации
     config = load_config("config.yaml")
+
+    # Проверка на необходимость вычисления эмбеддингов вакансий
+    if config.get('compute_vacancy_embeddings', False):
+        compute_and_save_vacancy_embeddings(config)  # Вычисление и сохранение эмбеддингов вакансий
 
     # Загрузка данных вакансий и факультетов
     df_cleaned, grouped_df = load_vacancy_data(config)

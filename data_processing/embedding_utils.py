@@ -2,6 +2,7 @@ import os
 import torch
 from sentence_transformers import SentenceTransformer
 from utils.logger import info, warning
+from safetensors.torch import save_file, load_file  # Импорт для работы с safetensors
 
 # Определение устройства (CUDA или CPU)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -35,8 +36,8 @@ def save_embeddings_to_file(embeddings, file_path):
     :param embeddings: Список эмбеддингов (тензоров).
     :param file_path: Путь к файлу, куда будут сохранены эмбеддинги.
     """
-    torch.save(embeddings, file_path)
-    info(f"Эмбеддинги сохранены в файл {file_path}.")
+    save_file({"embeddings": embeddings}, file_path)
+    info(f"Эмбеддинги сохранены в формате Safetensors в файл {file_path}.")
 
 def load_embeddings_from_file(file_path):
     """
@@ -46,7 +47,7 @@ def load_embeddings_from_file(file_path):
     :return: Список эмбеддингов (тензоров).
     """
     if os.path.isfile(file_path):
-        embeddings = torch.load(file_path)
+        embeddings = load_file(file_path)["embeddings"].to(device)
         info(f"Эмбеддинги загружены из файла {file_path}.")
         return embeddings
     else:
@@ -65,7 +66,7 @@ def prepare_embeddings(data, sbert_model, embeddings_folder=None, force_load=Fal
 
     # Определяем путь к файлу с эмбеддингами, если указана папка
     if embeddings_folder:
-        embeddings_file_path = os.path.join(embeddings_folder, "discipline_embeddings.pt")
+        embeddings_file_path = os.path.join(embeddings_folder, "discipline_embeddings.safetensors")
 
         # Проверяем, нужно ли загружать существующие эмбеддинги или пересчитывать
         if not force_load and os.path.isfile(embeddings_file_path):
