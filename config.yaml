@@ -17,7 +17,6 @@ compute_vacancy_embeddings: True
 # Блок принудительной загрузки файлов
 force_load_embeddings: False # Принудительная загрузка эмбеддингов.
 force_load_vacancy_embeddings: False # Принудительная загрузка эмбеддингов вакансий.
-force_load_vacancy_parquet: False
 
 top_disciplines: 5  # Количество поиска лучших дисциплин по косинусному сходству
 

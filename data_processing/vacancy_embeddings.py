@@ -21,8 +21,8 @@ def compute_and_save_vacancy_embeddings(config):
     parquet_file_path = os.path.join(parquet_folder, "vacancies.parquet")
 
     # Проверка на существование файла с эмбеддингами вакансий
-    if not config.get("force_load_vacancy_embeddings", False) and os.path.isfile(embeddings_file_path):
-        info(f"Эмбеддинги вакансий уже существуют и будут загружены из файла {embeddings_file_path}.")
+    if not config.get("force_load_vacancy_embeddings", False) and (os.path.isfile(embeddings_file_path) and os.path.isfile(parquet_file_path)):
+        info(f"Эмбеддинги вакансий и их Parquet файл уже существуют, пропускаем их формирование.")
         return load_embeddings_from_file(embeddings_file_path)  # Загружаем эмбеддинги из файла
 
     # Если файл не найден или требуется пересчет, пересчитываем эмбеддинги
@@ -72,8 +72,8 @@ def compute_and_save_vacancy_embeddings(config):
     vacancies_df = pd.DataFrame(vacancies_data)
 
     # Проверка на существование файла и флаг force_load
-    if not os.path.isfile(parquet_file_path) or config.get("force_load_vacancy_parquet", False):
-        vacancies_df.to_parquet(parquet_file_path, index=False)
-        info(f"Вакансии сохранены в формате Parquet в файл {parquet_file_path}.")
+
+    vacancies_df.to_parquet(parquet_file_path, index=False)
+    info(f"Вакансии сохранены в формате Parquet в файл {parquet_file_path}.")
 
     return embeddings

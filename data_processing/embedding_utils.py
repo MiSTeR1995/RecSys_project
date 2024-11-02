@@ -48,7 +48,6 @@ def load_embeddings_from_file(file_path):
     """
     if os.path.isfile(file_path):
         embeddings = load_file(file_path)["embeddings"].to(device)
-        info(f"Эмбеддинги загружены из файла {file_path}.")
         return embeddings
     else:
         return None
