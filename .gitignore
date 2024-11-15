@@ -174,4 +174,5 @@ data
 results
 embeddings
 merge.py
+duplicates
 # Не игнорировать

@@ -27,11 +27,13 @@ def main():
     else:
         model, tokenizer = None, None  # Если не нужно использовать модель, оставляем пустыми
 
-    # Загрузка CSV файлов с вакансиями
-    csv_files = load_csv_files(config)
+    # Проверка на необходимость вычисления эмбеддингов вакансий
+    if config.get('process_recomendations', False):
+        # Загрузка CSV файлов с вакансиями
+        csv_files = load_csv_files(config)
 
-    # Обработка вакансий и генерация рекомендаций для каждого файла
-    process_vacancies(config, csv_files, grouped_df, df_cleaned, model, tokenizer)
+        # Обработка вакансий и генерация рекомендаций для каждого файла
+        process_vacancies(config, csv_files, grouped_df, df_cleaned, model, tokenizer)
 
 if __name__ == "__main__":
     main()

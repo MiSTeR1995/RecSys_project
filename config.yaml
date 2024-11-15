@@ -12,9 +12,11 @@ sbert_model: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 method: "sbert"  # Метод обработки вакансий, возможные значения: "sbert", "tfidf"
 use_llm: False # Использование LLM модели для генерации рекомендаций
-compute_vacancy_embeddings: True
+compute_vacancy_embeddings: True # Расчет эмбедингов для вакансий
+process_recomendations: True # Гененрация рекомендаций
 
 # Блок принудительной загрузки файлов
+force_load_vacancies: False # Принудительная проверка файлов с вакансиями и очистка от дубликатов
 force_load_embeddings: False # Принудительная загрузка эмбеддингов.
 force_load_vacancy_embeddings: False # Принудительная загрузка эмбеддингов вакансий.
 
